@@ -1,53 +1,45 @@
-using UnityEngine;
+﻿using UnityEngine;
+using TMPro;
 
 [RequireComponent(typeof(Collider))]
 public class CableTile : MonoBehaviour
 {
-
-    [Header("Tile Definition")]
-    [Tooltip("Base connection mask at rotation = 0� (N=1,E=2,S=4,W=8).")]
     public int BaseMask = 0;
-
     public bool IsSource = false;
     public bool IsTarget = false;
-
-    [Tooltip("If true, this tile cannot be rotated.")]
     public bool LockRotation = false;
 
-    [Header("Visuals")]
     public Renderer targetRenderer;
 
-    [Tooltip("Color when tile is correctly powered")]
-    public Color poweredColor = Color.green;
+    public Color baseColor = new Color(0.55f, 0.55f, 0.55f, 1f);
+    public float baseEmission = 0.08f;
 
-    [Tooltip("Color when tile is wrong")]
-    public Color wrongColor = Color.red;
+    public Color blinkGreenColor = new Color(0.2f, 1f, 0.2f, 1f);
+    public float blinkEmission = 2.2f;
 
-    [Tooltip("Base color when tile is unpowered (dim but visible)")]
-    public Color unpoweredBaseColor = new Color(0.18f, 0.18f, 0.18f, 1f);
-
-    [Tooltip("Emission intensity for powered/wrong")]
-    public float emissionIntensity = 2f;
-
-    [Tooltip("Emission intensity for unpowered (very weak)")]
-    public float unpoweredEmissionIntensity = 0.2f;
-
-    [Header("Connectors (optional)")]
     public GameObject connN;
     public GameObject connE;
     public GameObject connS;
     public GameObject connW;
 
+    public TMP_Text hintTMP;
+    public Vector3 hintLocalOffset = new Vector3(0f, 0f, -0.6f);
+    public float hintFontSize = 6f;
+    public Color hintColor = Color.white;
+    public bool hintOutline = false;
+    public float hintOutlineWidth = 0.25f;
+    public Color hintOutlineColor = Color.black;
+
     [HideInInspector] public int gx;
     [HideInInspector] public int gy;
 
     int rotationSteps = 0;
+    MaterialPropertyBlock mpb;
+    Quaternion hintWorldRotation;
 
     static readonly int EmissionColorID = Shader.PropertyToID("_EmissionColor");
     static readonly int BaseColorID = Shader.PropertyToID("_BaseColor");
     static readonly int ColorID = Shader.PropertyToID("_Color");
-
-    MaterialPropertyBlock mpb;
 
     public int CurrentMask
     {
@@ -68,16 +60,27 @@ public class CableTile : MonoBehaviour
         if (!targetRenderer)
             targetRenderer = GetComponentInChildren<Renderer>(true);
 
-        mpb = new MaterialPropertyBlock();
+        if (mpb == null)
+            mpb = new MaterialPropertyBlock();
+
+        EnsureHintTMP();
+        if (hintTMP != null)
+            hintWorldRotation = hintTMP.transform.rotation;
 
         UpdateConnectors();
-        ShowUnpowered();
+        ShowBase();
+        RefreshHintFromCurrentMask();
+    }
+
+    void LateUpdate()
+    {
+        if (hintTMP != null)
+            hintTMP.transform.rotation = hintWorldRotation;
     }
 
     public void Use()
     {
         if (LockRotation) return;
-
         Rotate90();
         CableGridManager.Instance?.OnTileRotated(this);
     }
@@ -87,12 +90,30 @@ public class CableTile : MonoBehaviour
         rotationSteps = (rotationSteps + 1) & 3;
         transform.Rotate(0f, 0f, 90f, Space.Self);
         UpdateConnectors();
+        RefreshHintFromCurrentMask();
     }
 
     public void ResetRotationState()
     {
         rotationSteps = 0;
+        Vector3 e = transform.localEulerAngles;
+        e.z = 0f;
+        transform.localEulerAngles = e;
         UpdateConnectors();
+        RefreshHintFromCurrentMask();
+    }
+
+    public void ForceSetRotationSteps(int steps)
+    {
+        steps &= 3;
+        rotationSteps = steps;
+
+        Vector3 e = transform.localEulerAngles;
+        e.z = steps * 90f;
+        transform.localEulerAngles = e;
+
+        UpdateConnectors();
+        RefreshHintFromCurrentMask();
     }
 
     int RotateMask90CW(int m)
@@ -103,10 +124,10 @@ public class CableTile : MonoBehaviour
         bool w = (m & 8) != 0;
 
         int r = 0;
-        if (w) r |= 1; // W -> N
-        if (n) r |= 2; // N -> E
-        if (e) r |= 4; // E -> S
-        if (s) r |= 8; // S -> W
+        if (w) r |= 1;
+        if (n) r |= 2;
+        if (e) r |= 4;
+        if (s) r |= 8;
         return r;
     }
 
@@ -119,45 +140,112 @@ public class CableTile : MonoBehaviour
         if (connW) connW.SetActive((m & 8) != 0);
     }
 
-
-    public void ShowPowered()
+    void EnsureHintTMP()
     {
-        SetColor(poweredColor, emissionIntensity);
+        if (hintTMP != null) return;
+
+        hintTMP = GetComponentInChildren<TMP_Text>(true);
+        if (hintTMP == null)
+        {
+            var go = new GameObject("HintTMP");
+            go.transform.SetParent(transform, false);
+            go.transform.localPosition = hintLocalOffset;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+            hintTMP = go.AddComponent<TextMeshPro>();
+        }
+
+        hintTMP.alignment = TextAlignmentOptions.Center;
+        hintTMP.fontSize = hintFontSize;
+        hintTMP.color = hintColor;
+        hintTMP.textWrappingMode = TextWrappingModes.NoWrap;
+        hintTMP.richText = false;
+
+        var mr = hintTMP.GetComponent<MeshRenderer>();
+        if (mr != null) mr.sortingOrder = 1000;
+
+        if (hintTMP.font == null)
+        {
+            hintTMP.enabled = false;
+            return;
+        }
+
+        hintTMP.outlineWidth = hintOutline ? hintOutlineWidth : 0f;
+        hintTMP.outlineColor = hintOutlineColor;
+        hintTMP.enabled = true;
     }
 
-    public void ShowWrong()
+    public void RefreshHintFromCurrentMask()
     {
-        SetColor(wrongColor, emissionIntensity);
+        EnsureHintTMP();
+        if (hintTMP == null || !hintTMP.enabled) return;
+
+        string t = MaskToArrows(CurrentMask);
+        hintTMP.text = string.IsNullOrEmpty(t) ? "•" : t;
     }
 
-    public void ShowUnpowered()
+    string MaskToArrows(int mask)
     {
-        SetColor(unpoweredBaseColor, unpoweredEmissionIntensity);
+        mask &= 0xF;
+
+        bool n = (mask & 1) != 0;
+        bool e = (mask & 2) != 0;
+        bool s = (mask & 4) != 0;
+        bool w = (mask & 8) != 0;
+
+        int cnt = (n ? 1 : 0) + (e ? 1 : 0) + (s ? 1 : 0) + (w ? 1 : 0);
+        if (cnt == 0) return "";
+
+        if (cnt == 1)
+        {
+            if (n) return "↑";
+            if (e) return "→";
+            if (s) return "↓";
+            return "←";
+        }
+
+        if (cnt == 2)
+        {
+            if (n && s) return "↑↓";
+            if (e && w) return "←→";
+            if (n && e) return "↑→";
+            if (n && w) return "↑←";
+            if (s && e) return "↓→";
+            if (s && w) return "↓←";
+        }
+
+        string t = "";
+        if (n) t += "↑";
+        if (e) t += "→";
+        if (s) t += "↓";
+        if (w) t += "←";
+        return t;
     }
 
-    void SetColor(Color baseColor, float emissionPower)
+    public void ShowBase()
+    {
+        SetColor(baseColor, baseEmission);
+    }
+
+    public void BlinkGreen()
+    {
+        SetColor(blinkGreenColor, blinkEmission);
+    }
+
+    void SetColor(Color c, float emissionPower)
     {
         if (!targetRenderer) return;
-        if (mpb == null) mpb = new MaterialPropertyBlock();
 
         targetRenderer.GetPropertyBlock(mpb);
 
-        Color em = baseColor * Mathf.Max(0f, emissionPower);
-        if (targetRenderer.sharedMaterial != null &&
-            targetRenderer.sharedMaterial.HasProperty(EmissionColorID))
-        {
+        Color em = c * emissionPower;
+        if (targetRenderer.sharedMaterial != null && targetRenderer.sharedMaterial.HasProperty(EmissionColorID))
             mpb.SetColor(EmissionColorID, em);
-        }
 
-        if (targetRenderer.sharedMaterial != null &&
-            targetRenderer.sharedMaterial.HasProperty(BaseColorID))
-        {
-            mpb.SetColor(BaseColorID, baseColor);
-        }
+        if (targetRenderer.sharedMaterial != null && targetRenderer.sharedMaterial.HasProperty(BaseColorID))
+            mpb.SetColor(BaseColorID, c);
         else
-        {
-            mpb.SetColor(ColorID, baseColor);
-        }
+            mpb.SetColor(ColorID, c);
 
         targetRenderer.SetPropertyBlock(mpb);
     }

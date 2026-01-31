@@ -5,13 +5,15 @@ public class TimerManager : MonoBehaviour
 {
     public static TimerManager Instance { get; private set; }
 
+    public float ElapsedSeconds => Mathf.Max(0f, totalTimeSeconds - _timeLeft);
+
     [Header("Time settings")]
-    public float totalTimeSeconds = 600f; 
+    public float totalTimeSeconds = 600f;
 
     [Header("UI")]
     public TMP_Text timerText;
 
-    [Tooltip("HUD canvas ")]
+    [Tooltip("HUD canvas")]
     public GameObject hudRoot;
 
     [Header("End game UI")]
@@ -95,9 +97,8 @@ public class TimerManager : MonoBehaviour
 
         HideTimerHud();
 
-        float elapsed = Mathf.Max(0f, totalTimeSeconds - _timeLeft);
-
-        if (endUI) endUI.ShowWin(elapsed);
+        if (endUI)
+            endUI.ShowWin(ElapsedSeconds);
     }
 
     void HandleLose()
@@ -107,6 +108,7 @@ public class TimerManager : MonoBehaviour
 
         HideTimerHud();
 
-        if (endUI) endUI.ShowLose();
+        if (endUI)
+            endUI.ShowLose();
     }
 }

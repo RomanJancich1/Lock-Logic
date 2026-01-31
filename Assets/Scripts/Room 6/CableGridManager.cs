@@ -6,18 +6,12 @@ public class CableGridManager : MonoBehaviour
 {
     public static CableGridManager Instance { get; private set; }
 
-    [Header("Grid Settings")]
     [SerializeField] private float spacing = 1.1f;
-
-    [Header("Door (existing logic)")]
     public MyDoorController door;
 
-    [Header("Timing")]
-    [SerializeField] private float correctDelaySeconds = 0.20f;
-    [SerializeField] private float wrongFlashSeconds = 0.50f;
-
-    [Header("Behavior")]
     [SerializeField] private bool lockOffPathTiles = true;
+    [SerializeField] private float blinkDuration = 0.2f;
+    [SerializeField] private int blinkCount = 2;
 
     private CableTile[,] grid;
     private int width, height;
@@ -25,10 +19,9 @@ public class CableGridManager : MonoBehaviour
     private CableTile sourceTile;
     private CableTile targetTile;
 
-    private List<Vector2Int> path;
     private Dictionary<Vector2Int, int> requiredMask;
 
-    private int currentStepIndex = 1;
+    private bool solved;
     private bool busy;
 
     void Awake()
@@ -39,21 +32,14 @@ public class CableGridManager : MonoBehaviour
     void Start()
     {
         BuildGridFromChildren();
-        if (grid == null) return;
-
-        SetupPath_4x4();
+        SetupRequiredMask_4x4();
         ApplyInitialVisuals();
+        CheckSolvedAndMaybeBlink();
     }
 
-
-    private void BuildGridFromChildren()
+    void BuildGridFromChildren()
     {
-        var tiles = GetComponentsInChildren<CableTile>(includeInactive: false);
-        if (tiles == null || tiles.Length == 0)
-        {
-            Debug.LogError("CableGridManager: No CableTile found as children.");
-            return;
-        }
+        var tiles = GetComponentsInChildren<CableTile>(false);
 
         float minX = float.PositiveInfinity;
         float minY = float.PositiveInfinity;
@@ -61,25 +47,21 @@ public class CableGridManager : MonoBehaviour
         foreach (var t in tiles)
         {
             var p = t.transform.localPosition;
-            if (p.x < minX) minX = p.x;
-            if (p.y < minY) minY = p.y;
+            minX = Mathf.Min(minX, p.x);
+            minY = Mathf.Min(minY, p.y);
         }
 
         int maxGX = 0, maxGY = 0;
-        var coords = new Dictionary<CableTile, (int gx, int gy)>();
+        var coords = new Dictionary<CableTile, Vector2Int>();
 
         foreach (var t in tiles)
         {
             var p = t.transform.localPosition;
-            float fx = (p.x - minX) / Mathf.Max(0.0001f, spacing);
-            float fy = (p.y - minY) / Mathf.Max(0.0001f, spacing);
-
-            int gx = Mathf.RoundToInt(fx);
-            int gy = Mathf.RoundToInt(fy);
-
-            coords[t] = (gx, gy);
-            if (gx > maxGX) maxGX = gx;
-            if (gy > maxGY) maxGY = gy;
+            int gx = Mathf.RoundToInt((p.x - minX) / Mathf.Max(0.0001f, spacing));
+            int gy = Mathf.RoundToInt((p.y - minY) / Mathf.Max(0.0001f, spacing));
+            coords[t] = new Vector2Int(gx, gy);
+            maxGX = Mathf.Max(maxGX, gx);
+            maxGY = Mathf.Max(maxGY, gy);
         }
 
         width = maxGX + 1;
@@ -88,27 +70,16 @@ public class CableGridManager : MonoBehaviour
 
         foreach (var kv in coords)
         {
-            var tile = kv.Key;
-            var (gx, gy) = kv.Value;
-
-            if (gx < 0 || gx >= width || gy < 0 || gy >= height)
-                continue;
-
-            if (grid[gx, gy] != null)
-            {
-                Debug.LogError($"CableGridManager: Duplicate cell ({gx},{gy}) for {tile.name} and {grid[gx, gy].name}");
-                continue;
-            }
-
-            tile.Init(gx, gy);
-            grid[gx, gy] = tile;
+            var t = kv.Key;
+            var p = kv.Value;
+            t.Init(p.x, p.y);
+            grid[p.x, p.y] = t;
         }
 
         FindEndpoints();
-        Debug.Log($"CableGridManager: grid created {width}x{height}");
     }
 
-    private void FindEndpoints()
+    void FindEndpoints()
     {
         sourceTile = null;
         targetTile = null;
@@ -118,162 +89,126 @@ public class CableGridManager : MonoBehaviour
             {
                 var t = grid[x, y];
                 if (!t) continue;
-
                 if (t.IsSource) sourceTile = t;
                 if (t.IsTarget) targetTile = t;
             }
-
-        if (!sourceTile) Debug.LogError("CableGridManager: Missing SOURCE tile (IsSource=true).");
-        if (!targetTile) Debug.LogError("CableGridManager: Missing TARGET tile (IsTarget=true).");
     }
 
-
-    private void SetupPath_4x4()
+    void SetupRequiredMask_4x4()
     {
-        path = new List<Vector2Int>
-        {
-            new Vector2Int(0,0),
-            new Vector2Int(1,0),
-            new Vector2Int(2,0),
-            new Vector2Int(2,1),
-            new Vector2Int(2,2),
-            new Vector2Int(1,2),
-            new Vector2Int(0,2),
-            new Vector2Int(0,3),
-            new Vector2Int(1,3),
-            new Vector2Int(2,3),
-            new Vector2Int(3,3)
-        };
-
         requiredMask = new Dictionary<Vector2Int, int>
         {
-            [new Vector2Int(0, 0)] = 2,   // E
-            [new Vector2Int(1, 0)] = 10,  // W+E
-            [new Vector2Int(2, 0)] = 9,   // W+N
-            [new Vector2Int(2, 1)] = 5,   // N+S
-            [new Vector2Int(2, 2)] = 12,  // S+W
-            [new Vector2Int(1, 2)] = 10,  // W+E
-            [new Vector2Int(0, 2)] = 3,   // N+E  
-            [new Vector2Int(0, 3)] = 6,   // S+E
-            [new Vector2Int(1, 3)] = 10,  // W+E
-            [new Vector2Int(2, 3)] = 10,  // W+E
-            [new Vector2Int(3, 3)] = 8    // W
+            [new Vector2Int(0, 0)] = 2,
+            [new Vector2Int(1, 0)] = 10,
+            [new Vector2Int(2, 0)] = 9,
+            [new Vector2Int(2, 1)] = 5,
+            [new Vector2Int(2, 2)] = 12,
+            [new Vector2Int(1, 2)] = 10,
+            [new Vector2Int(0, 2)] = 3,
+            [new Vector2Int(0, 3)] = 6,
+            [new Vector2Int(1, 3)] = 10,
+            [new Vector2Int(2, 3)] = 10,
+            [new Vector2Int(3, 3)] = 8
         };
 
-        currentStepIndex = 1;
+        solved = false;
         busy = false;
     }
 
-
-    private void ApplyInitialVisuals()
+    void ApplyInitialVisuals()
     {
-        if (grid == null) return;
-        if (!sourceTile || !targetTile) FindEndpoints();
-        if (!sourceTile || !targetTile) return;
-
-        busy = false;
-        currentStepIndex = 1;
-
         for (int y = 0; y < height; y++)
             for (int x = 0; x < width; x++)
             {
                 var t = grid[x, y];
                 if (!t) continue;
 
-                t.ShowUnpowered();
+                t.ShowBase();
+                t.RefreshHintFromCurrentMask();
 
-                Vector2Int pos = new Vector2Int(x, y);
-                bool onPath = requiredMask.ContainsKey(pos);
+                bool onPath = requiredMask.ContainsKey(new Vector2Int(x, y));
 
                 if (lockOffPathTiles && !onPath)
                 {
-                    t.LockRotation = true;     
-                    t.BaseMask = 0;           
+                    t.LockRotation = true;
+                    t.BaseMask = 0;
+                    t.RefreshHintFromCurrentMask();
                 }
                 else
                 {
-                    if (t.IsSource || t.IsTarget) t.LockRotation = true;
-                    else t.LockRotation = false;
+                    t.LockRotation = t.IsSource || t.IsTarget;
                 }
             }
 
-        sourceTile.ShowPowered();
-
+        RandomizeAllTiles();
         door?.Lock();
+    }
+
+    void RandomizeAllTiles()
+    {
+        foreach (var kv in requiredMask)
+        {
+            var p = kv.Key;
+            var t = grid[p.x, p.y];
+            if (!t || t.IsSource || t.IsTarget) continue;
+
+            int r = Random.Range(0, 4);
+            t.ForceSetRotationSteps(r);
+        }
     }
 
     public void OnTileRotated(CableTile tile)
     {
-        if (busy) return;
-        if (!tile) return;
-        if (path == null || requiredMask == null) return;
-        if (currentStepIndex < 1 || currentStepIndex >= path.Count) return;
-
-        Vector2Int expected = path[currentStepIndex];
-
-        if (!IsInside(expected) || grid[expected.x, expected.y] == null) return;
-
-        Vector2Int pos = new Vector2Int(tile.gx, tile.gy);
-
-        if (pos != expected) return;
-
-        int need = requiredMask[expected];
-        int cur = tile.CurrentMask;
-
-        if (cur == need) StartCoroutine(CoCorrect(tile));
-        else StartCoroutine(CoWrong(tile));
+        if (busy || solved) return;
+        CheckSolvedAndMaybeBlink();
     }
 
-    private IEnumerator CoCorrect(CableTile tile)
+    void CheckSolvedAndMaybeBlink()
+    {
+        foreach (var kv in requiredMask)
+        {
+            var p = kv.Key;
+            var t = grid[p.x, p.y];
+            if (!t || t.CurrentMask != kv.Value) return;
+        }
+
+        solved = true;
+        door?.Unlock();
+        StartCoroutine(CoBlinkAllGreen());
+    }
+
+    IEnumerator CoBlinkAllGreen()
     {
         busy = true;
 
-        tile.ShowPowered();
-        tile.LockRotation = true; 
-
-        yield return new WaitForSeconds(correctDelaySeconds);
-
-        currentStepIndex++;
-
-        if (currentStepIndex == path.Count - 1)
+        for (int i = 0; i < blinkCount; i++)
         {
-            Vector2Int tp = path[currentStepIndex];
-            if (IsInside(tp) && grid[tp.x, tp.y] != null)
-                grid[tp.x, tp.y].ShowPowered();
+            foreach (var t in grid)
+                if (t) t.BlinkGreen();
 
-            door?.Unlock();
+            yield return new WaitForSeconds(blinkDuration);
+
+            foreach (var t in grid)
+                if (t) t.ShowBase();
+
+            yield return new WaitForSeconds(blinkDuration);
         }
 
         busy = false;
     }
 
-    private IEnumerator CoWrong(CableTile tile)
-    {
-        busy = true;
-
-        tile.ShowWrong();
-        yield return new WaitForSeconds(wrongFlashSeconds);
-        tile.ShowUnpowered();
-
-        busy = false;
-    }
-
-    private bool IsInside(Vector2Int p)
-    {
-        return p.x >= 0 && p.x < width && p.y >= 0 && p.y < height;
-    }
-
     public void RegisterInsertedTile(CableTile tile, int gx, int gy)
     {
-        if (grid == null || !tile) return;
+        if (grid == null || tile == null) return;
         if (gx < 0 || gx >= width || gy < 0 || gy >= height) return;
 
         tile.gx = gx;
         tile.gy = gy;
-
         grid[gx, gy] = tile;
 
         ApplyInitialVisuals();
+        solved = false;
+        CheckSolvedAndMaybeBlink();
     }
 
     public void RegisterRemovedTile(int gx, int gy)
@@ -284,5 +219,6 @@ public class CableGridManager : MonoBehaviour
         grid[gx, gy] = null;
 
         ApplyInitialVisuals();
+        solved = false;
     }
 }
