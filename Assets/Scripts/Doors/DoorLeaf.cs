@@ -1,29 +1,50 @@
 ﻿using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(Collider))]
 public class DoorLeafOpener : MonoBehaviour
 {
-    public MyDoorController door;   
+    public MyDoorController door;
 
     [Header("Dosah interakcie")]
     public bool requirePlayerInRange = true;
     public float useRange = 2.0f;
-    public Transform player;        
+    public Transform player;
+
+    [Header("XR Input")]
+    public InputActionReference useAction;
 
     void Awake()
     {
         if (!door) door = GetComponentInParent<MyDoorController>();
-        if (!player) { var cam = Camera.main; if (cam) player = cam.transform; }
+        if (!player)
+        {
+            var cam = Camera.main;
+            if (cam) player = cam.transform;
+        }
     }
 
-    void Update()
+    void OnEnable()
     {
-        if (Input.GetKeyDown(KeyCode.E))
+        if (useAction != null)
         {
-            if (!door) return;
-            if (!requirePlayerInRange || IsPlayerCloseEnough())
-                door.TryToggle();
+            useAction.action.performed += OnUse;
+            useAction.action.Enable();
         }
+    }
+
+    void OnDisable()
+    {
+        if (useAction != null)
+        {
+            useAction.action.performed -= OnUse;
+            useAction.action.Disable();
+        }
+    }
+
+    void OnUse(InputAction.CallbackContext ctx)
+    {
+        Use();
     }
 
     bool IsPlayerCloseEnough()

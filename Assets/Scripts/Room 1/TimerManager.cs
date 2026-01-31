@@ -6,10 +6,13 @@ public class TimerManager : MonoBehaviour
     public static TimerManager Instance { get; private set; }
 
     [Header("Time settings")]
-    public float totalTimeSeconds = 600f;  
+    public float totalTimeSeconds = 600f; 
 
     [Header("UI")]
     public TMP_Text timerText;
+
+    [Tooltip("HUD canvas ")]
+    public GameObject hudRoot;
 
     [Header("End game UI")]
     public GameEndUI endUI;
@@ -31,7 +34,7 @@ public class TimerManager : MonoBehaviour
 
         if (timerText)
         {
-            timerText.gameObject.SetActive(false);   
+            timerText.gameObject.SetActive(false);
             UpdateTimerText();
         }
     }
@@ -63,14 +66,25 @@ public class TimerManager : MonoBehaviour
         timerText.text = $"{minutes:0}:{secs:00}";
     }
 
+    void HideTimerHud()
+    {
+        if (timerText) timerText.gameObject.SetActive(false);
+        if (hudRoot) hudRoot.SetActive(false);
+    }
+
     public void StartTimer()
     {
         _finished = false;
         _timeLeft = totalTimeSeconds;
         _running = true;
 
+        if (hudRoot) hudRoot.SetActive(true);
+
         if (timerText)
+        {
             timerText.gameObject.SetActive(true);
+            UpdateTimerText();
+        }
     }
 
     public void NotifyPlayerFinished()
@@ -79,13 +93,19 @@ public class TimerManager : MonoBehaviour
         _finished = true;
         _running = false;
 
-        if (endUI) endUI.ShowWin();
+        HideTimerHud();
+
+        float elapsed = Mathf.Max(0f, totalTimeSeconds - _timeLeft);
+
+        if (endUI) endUI.ShowWin(elapsed);
     }
 
     void HandleLose()
     {
         if (_finished) return;
         _finished = true;
+
+        HideTimerHud();
 
         if (endUI) endUI.ShowLose();
     }

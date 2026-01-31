@@ -8,6 +8,9 @@ public class MonitorMenu : MonoBehaviour
     public TMP_Text titleText;
     public TMP_Text bodyText;
 
+    [Header("Startup")]
+    public bool showOnStart = true;
+
     [Header("Door to unlock on Continue")]
     public MyDoorController doorToUnlock;
     public bool unlockOnlyOnce = true;
@@ -17,6 +20,12 @@ public class MonitorMenu : MonoBehaviour
     void Awake()
     {
         if (introUI) introUI.SetActive(false);
+    }
+
+    void Start()
+    {
+        if (showOnStart)
+            ShowMenu();
     }
 
     public void ShowMenu()

@@ -21,10 +21,6 @@ public class LaserEmitter : MonoBehaviour
         lr = GetComponent<LineRenderer>();
         lr.positionCount = 0;
         lr.startWidth = lr.endWidth = beamWidth;
-
-        var mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-        mat.SetColor("_BaseColor", beamColor);
-        lr.material = mat;
     }
 
     void Update() => Simulate();

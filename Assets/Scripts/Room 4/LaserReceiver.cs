@@ -3,12 +3,12 @@ using UnityEngine.Events;
 
 public class LaserReceiver : MonoBehaviour
 {
-    public Renderer indicator;          // a small LED / disk renderer
+    public Renderer indicator;          
     public Color idle = Color.gray;
     public Color active = Color.green;
-    public float requireHitForSeconds = 0.05f; // small debounce
+    public float requireHitForSeconds = 0.05f; 
 
-    public UnityEvent OnSolved;         // hook: MyDoorController.Unlock()
+    public UnityEvent OnSolved;         
 
     bool hitThisFrame;
     bool solved;
@@ -21,7 +21,6 @@ public class LaserReceiver : MonoBehaviour
     {
         if (solved) return;
 
-        // Accumulate continuous hits for stability
         if (hitThisFrame) hitAccum += Time.deltaTime;
         else hitAccum = 0f;
 
